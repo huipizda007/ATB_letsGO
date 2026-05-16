@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -20,45 +19,37 @@ func NewFruitHandler(repo *repository.FruitRepository) *FruitHandler {
 }
 
 func (h *FruitHandler) CreateFruit(w http.ResponseWriter, r *http.Request) {
-	var f models.Fruit
-	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
-		http.Error(w, "Некоректний JSON", http.StatusBadRequest)
+	var fruit models.Fruit
+	if err := json.NewDecoder(r.Body).Decode(&fruit); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Некоректний формат JSON"})
 		return
 	}
 
-	if strings.TrimSpace(f.Name) == "" {
-		http.Error(w, "Назва фрукта (name) не може бути порожньою", http.StatusBadRequest)
-		return
-	}
-	if strings.TrimSpace(f.Brand) == "" {
-		http.Error(w, "Бренд (brand) не може бути порожнім", http.StatusBadRequest)
-		return
-	}
-	if f.PricePerKg <= 0 {
-		http.Error(w, "Ціна (price_per_kg) має бути більшою за нуль", http.StatusBadRequest)
-		return
-	}
-	if f.StockKg < 0 {
-		http.Error(w, "Кількість на складі (stock_kg) не може бути від'ємною", http.StatusBadRequest)
+	if fruit.Name == "" || fruit.PricePerKg <= 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Назва не може бути порожньою, а ціна має бути більшою за нуль"})
 		return
 	}
 
-	id, err := h.repo.Create(r.Context(), f)
+	id, err := h.repo.Create(r.Context(), fruit)
 	if err != nil {
-		http.Error(w, "Помилка збереження в базу: "+err.Error(), http.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Помилка збереження в базу"})
 		return
 	}
 
-	f.ID = id
+	fruit.ID = id
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(f)
+	json.NewEncoder(w).Encode(fruit)
 }
 
 func (h *FruitHandler) GetAllFruits(w http.ResponseWriter, r *http.Request) {
 	fruits, err := h.repo.GetAll(r.Context())
 	if err != nil {
-		http.Error(w, "Помилка отримання даних: "+err.Error(), http.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Помилка отримання даних"})
 		return
 	}
 
@@ -70,93 +61,126 @@ func (h *FruitHandler) GetFruitByID(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "Некоректний ID", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Некоректний ID"})
 		return
 	}
 
-	f, err := h.repo.GetByID(r.Context(), id)
+	fruit, err := h.repo.GetByID(r.Context(), id)
 	if err != nil {
-		http.Error(w, "Фрукт не знайдено", http.StatusNotFound)
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Фрукт не знайдено"})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(f)
+	json.NewEncoder(w).Encode(fruit)
+}
+
+func (h *FruitHandler) UpdateFruit(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Некоректний ID фрукта"})
+		return
+	}
+
+	var fruit models.Fruit
+	if err := json.NewDecoder(r.Body).Decode(&fruit); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Некоректний формат JSON"})
+		return
+	}
+
+	if fruit.Name == "" || fruit.Brand == "" || fruit.PricePerKg <= 0 || fruit.StockKg < 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Некоректні дані: заповніть усі поля правильно"})
+		return
+	}
+
+	if err := h.repo.Update(r.Context(), id, fruit); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Помилка оновлення в базі даних"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Дані фрукта успішно повністю оновлено"})
 }
 
 func (h *FruitHandler) UpdateFruitPrice(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "Некоректний ID", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Некоректний ID"})
 		return
 	}
 
 	var req struct {
 		PricePerKg float64 `json:"price_per_kg"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Некоректний JSON", http.StatusBadRequest)
-		return
-	}
-
-	if req.PricePerKg <= 0 {
-		http.Error(w, "Нова ціна має бути більшою за нуль", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.PricePerKg <= 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Некоректна ціна"})
 		return
 	}
 
 	if err := h.repo.UpdatePrice(r.Context(), id, req.PricePerKg); err != nil {
-		http.Error(w, "Помилка оновлення бази", http.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Помилка оновлення ціни"})
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Ціну успішно оновлено"}`))
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": "Ціну успішно оновлено"})
 }
 
 func (h *FruitHandler) UpdateFruitStock(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "Некоректний ID", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Некоректний ID"})
 		return
 	}
 
 	var req struct {
 		StockKg float64 `json:"stock_kg"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Некоректний JSON", http.StatusBadRequest)
-		return
-	}
-
-	if req.StockKg < 0 {
-		http.Error(w, "Кількість на складі не може бути від'ємною", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.StockKg < 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Некоректний залишок"})
 		return
 	}
 
 	if err := h.repo.UpdateStock(r.Context(), id, req.StockKg); err != nil {
-		http.Error(w, "Помилка оновлення бази", http.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Помилка оновлення залишку"})
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Залишок на складі успішно оновлено"}`))
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": "Залишок успішно оновлено"})
 }
 
 func (h *FruitHandler) DeleteFruit(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "Некоректний ID", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Некоректний ID"})
 		return
 	}
 
 	if err := h.repo.Delete(r.Context(), id); err != nil {
-		http.Error(w, "Помилка видалення", http.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Помилка видалення"})
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": "Фрукт видалено"}`))
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": "Фрукт успішно видалено"})
 }
