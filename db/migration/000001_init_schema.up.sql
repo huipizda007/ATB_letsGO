@@ -1,0 +1,8 @@
+CREATE TABLE fruits (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    brand VARCHAR(255) NOT NULL,
+    price_per_kg DECIMAL(10, 2) NOT NULL,
+    stock_kg DECIMAL(10, 2) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
