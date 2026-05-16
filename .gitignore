@@ -6,3 +6,4 @@ app.env
 *.dylib
 *.test
 *.out
+.vs/
